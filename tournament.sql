@@ -16,7 +16,7 @@ create table players (
 
 create table matches (
     m_id serial primary key,
-    round integer,
+    round integer default 0,
     player_1 integer references players (p_id),
     player_2 integer references players (p_id)
 );

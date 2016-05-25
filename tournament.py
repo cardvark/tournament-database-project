@@ -4,6 +4,7 @@
 #
 
 import psycopg2
+import random
 
 
 def connect():
@@ -15,6 +16,7 @@ def deleteMatches():
     db = connect()
     c = db.cursor()
     c.execute('DELETE from matches;')
+    c.execute('DELETE from results;')
     db.commit()
     db.close()
 
@@ -34,7 +36,7 @@ def countPlayers():
     c = db.cursor()
 
     query = """SELECT
-        count(*)
+            count(*)
         from players;
     """
 
@@ -80,6 +82,32 @@ def playerStandings():
         matches: the number of matches the player has played
     """
 
+    db = connect()
+    c = db.cursor()
+
+    # 
+
+    query = """SELECT
+            players.p_id,
+            players.name,
+            sum(case result when 'win' then 1 else 0 end) as wins,
+            count(results.p_id) as matches
+        from players
+        left join results
+            on players.p_id = results.p_id
+        group by players.p_id, players.name
+        ;
+    """
+
+    c.execute(query)
+    data = c.fetchall()
+
+    db.close()
+
+    # print data
+
+    return data
+
 
 def reportMatch(winner, loser):
     """Records the outcome of a single match between two players.
@@ -88,8 +116,60 @@ def reportMatch(winner, loser):
       winner:  the id number of the player who won
       loser:  the id number of the player who lost
     """
- 
- 
+
+    db = connect()
+    c = db.cursor()
+
+    inputMatch = 'INSERT into matches (player_1, player_2) values (%s, %s);'
+    matchIdQuery = 'SELECT m_id from matches where player_1 = %s and player_2 = %s'
+    inputPlayer = 'INSERT into results (m_id, p_id, result) values (%s, %s, %s)'
+    scoreQuery = 'SELECT sum(score) from players where p_id = %s'
+    updateScore = 'UPDATE players set score=%s where p_id = %s'
+
+    c.execute(inputMatch, (winner, loser))
+    matchId = c.execute(matchIdQuery, (winner, loser))
+    c.execute(inputPlayer, (matchId, winner, 'win'))
+    c.execute(inputPlayer, (matchId, loser, 'loss'))
+    
+    c.execute(scoreQuery, (winner,))
+    winnerScore = c.fetchall()
+    # print winnerScore
+    # loserScore = c.execute(scoreQuery, (loser,))
+    winnerUpdate = c.execute(updateScore, (winnerScore[0][0] + 1, winner))
+    # loserUpdate = c.execute(updateScore, (loserScore + 0, loser))
+
+    db.commit()
+    db.close()
+
+def hasMatched(p1, p2):
+    """
+    Checks if two players have previously been in a match before.
+
+    Returns True or False.
+
+    """
+
+    db = connect()
+    c = db.cursor()
+
+    query = """SELECT
+            count(*)
+        from matches
+        where player_1 != player_2
+        and player_1 in (p1, p2)
+        and player_2 in (p1, p2);
+    """
+
+    c.execute(query)
+
+    matchCheck = c.fetchall()
+
+    if matchCheck[0][0] == 0:
+        return False
+    else:
+        return True
+
+
 def swissPairings():
     """Returns a list of pairs of players for the next round of a match.
   
@@ -106,4 +186,50 @@ def swissPairings():
         name2: the second player's name
     """
 
+    db = connect()
+    c = db.cursor()
 
+    c.execute('SELECT * from players order by score desc')
+
+    playerStatus = c.fetchall()
+
+    outputList = []
+    tempTup = ()
+
+    randList = []
+
+    while playerStatus:
+        if not randList:
+            randList.append(playerStatus.pop(0))
+        
+        if playerStatus[0][2] == randList[0][2]:
+            randList.append(playerStatus.pop(0))
+        elif len(randList) == 1:
+            randList.append(playerStatus.pop(0))
+            tempTup = (randList[0][0], randList[0][1], randList[1][0], randList[1][1])
+            outputList.append(tempTup)
+            randList = []
+            tempTup = ()
+        
+        while len(randList) >= 2:
+            # print 'printing randList', randList
+            random.shuffle(randList)
+            # print randList
+            player1 = randList.pop()
+            player2 = randList.pop()
+            # print player1, player2
+            tempTup = (player1[0], player1[1], player2[0], player2[1])
+            # print tempTup
+            outputList.append(tempTup)
+            # print outputList
+            tempTup = ()
+
+    # print outputList
+    return outputList
+
+    # Query standings - list of tuples of info for each player.
+    # Sort players by wins
+    # rand pairing by groups of wins
+    # if leftover, shift back into list.
+    # if no equals, just pair next two.
+    # 
