@@ -7,16 +7,19 @@ import psycopg2
 import random
 
 
-def connect():
+def connect(database_name='tournament'):
     """Connect to the PostgreSQL database.  Returns a database connection."""
-    return psycopg2.connect("dbname=tournament")
+    try:
+        db = psycopg2.connect('dbname={}'.format(database_name))
+        cursor = db.cursor()
+        return db, cursor
+    except:
+        print 'Unable to connect to database.'
 
 
 def deleteMatches():
     """Remove all the match records from the database."""
-    db = connect()
-    c = db.cursor()
-    c.execute('DELETE from results;')
+    db, c = connect()
     c.execute('DELETE from matches;')
     db.commit()
     db.close()
@@ -24,8 +27,7 @@ def deleteMatches():
 
 def deletePlayers():
     """Remove all the player records from the database."""
-    db = connect()
-    c = db.cursor()
+    db, c = connect()
     c.execute('DELETE from players;')
     db.commit()
     db.close()
@@ -33,8 +35,7 @@ def deletePlayers():
 
 def countPlayers():
     """Returns the number of players currently registered."""
-    db = connect()
-    c = db.cursor()
+    db, c = connect()
 
     query = """SELECT
             count(*)
@@ -42,12 +43,10 @@ def countPlayers():
     """
 
     c.execute(query)
-    data = c.fetchall()
-
+    data = c.fetchone()[0]
     db.close()
-    # print data
 
-    return data[0][0]
+    return data
 
 
 def registerPlayer(name):
@@ -60,8 +59,7 @@ def registerPlayer(name):
       name: the player's full name (need not be unique).
     """
 
-    db = connect()
-    c = db.cursor()
+    db, c = connect()
 
     inputVal = 'INSERT into players (name) values (%s);'
 
@@ -85,29 +83,15 @@ def playerStandings():
         matches: the number of matches the player has played
     """
 
-    db = connect()
-    c = db.cursor()
+    db, c = connect()
 
-    #
-
-    query = """SELECT
-            players.p_id,
-            players.name,
-            sum(case result when 'win' then 1 else 0 end) as wins,
-            count(results.p_id) as matches
-        from players
-        left join results
-            on players.p_id = results.p_id
-        group by players.p_id, players.name
-        ;
-    """
+    # Calls custom 'playerstandings' view
+    # Located in tournament.sql
+    query = 'SELECT * from playerstandings;'
 
     c.execute(query)
     data = c.fetchall()
-
     db.close()
-
-    # print data
 
     return data
 
@@ -120,57 +104,13 @@ def reportMatch(winner, loser):
       loser:  the id number of the player who lost
     """
 
-    db = connect()
-    c = db.cursor()
+    db, c = connect()
 
-    inputMatch = 'INSERT into matches (player_1, player_2) values (%s, %s) RETURNING m_id;'
-    inputPlayer = 'INSERT into results (m_id, p_id, result) values (%s, %s, %s)'
-    scoreQuery = 'SELECT sum(score) from players where p_id = %s'
-    updateScore = 'UPDATE players set score=%s where p_id = %s'
+    inputMatch = 'INSERT into matches (winner, loser) values (%s, %s) RETURNING m_id;'
 
-    # Reports match to 'matches', returns ID of the new match.
     c.execute(inputMatch, (winner, loser))
-    matchId = c.fetchone()[0]
-
-    # Records into 'results' each players' result.
-    c.execute(inputPlayer, (matchId, winner, 'win'))
-    c.execute(inputPlayer, (matchId, loser, 'loss'))
-
-    # Reads winner's prev score and then updates with + 1.
-    c.execute(scoreQuery, (winner,))
-    winnerScore = c.fetchall()
-    c.execute(updateScore, (winnerScore[0][0] + 1, winner))
-
     db.commit()
     db.close()
-
-
-def hasMatched(p1, p2):
-    """
-    Checks if two players have previously been in a match before.
-
-    Returns True or False.
-
-    """
-
-    db = connect()
-    c = db.cursor()
-
-    query = """SELECT
-            count(*)
-        from matches
-        where player_1 != player_2
-        and player_1 in (p1, p2)
-        and player_2 in (p1, p2);
-    """
-
-    c.execute(query)
-    matchCheck = c.fetchall()
-
-    if matchCheck[0][0] == 0:
-        return False
-    else:
-        return True
 
 
 def swissPairings():
@@ -192,13 +132,11 @@ def swissPairings():
     outputList = []
     tempTup = ()
     randList = []
+    db, c = connect()
 
-    db = connect()
-    c = db.cursor()
-
-    # Query and sort players by # of wins
-    c.execute('SELECT * from players order by score desc')
-    playersList = c.fetchall()
+    # # Query and sort players by # of wins
+    # c.execute('SELECT * from players order by score desc')
+    playersList = playerStandings()
 
     while playersList:
         currentScore = playersList[0][2]
