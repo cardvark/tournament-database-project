@@ -22,6 +22,7 @@ create table matches (
 );
 
 create table results (
+    r_id serial primary key,
     m_id integer references matches,
     p_id integer references players,
     result text
